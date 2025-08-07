@@ -59,11 +59,16 @@ class PdfUploadController extends Controller
                 }
             }
 
+            // Extract Shipping Address block
             preg_match('/Shipping Address\s*:\s*(.*?)\n(?:\s*\n|\r\n|\n)/s', $text, $shippingBlock);
             $shippingBlockText = trim($shippingBlock[1] ?? '');
+            $shippingLines = explode("\n", $shippingBlockText);
+            $shippingAddress = implode(', ', array_map('trim', $shippingLines));
 
-            preg_match('/GST Registration No:\s*(.*)/', $shippingBlockText, $shippingGstMatch);
-            $shippingGst = trim($shippingGstMatch[1] ?? '');
+            // Extract the GST number from the "Sold By" section
+            preg_match('/Sold By\s*:.*?GST Registration No:\s*(\w+)/s', $text, $gstMatch);
+            $shippingGst = trim($gstMatch[1] ?? '');
+
 
             $shippingLines = array_filter(explode("\n", $shippingBlockText), function ($line) {
                 return stripos($line, 'GST Registration No:') === false;
