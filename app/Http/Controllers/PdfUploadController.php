@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Smalot\PdfParser\Parser;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
 
 class PdfUploadController extends Controller
 {
@@ -25,11 +25,26 @@ class PdfUploadController extends Controller
         $spreadsheet = new Spreadsheet();
         $sheet = $spreadsheet->getActiveSheet();
 
-        $sheet->fromArray(
-            ['File', 'Order Number', 'Order Date', 'Invoice Number', 'Invoice Details', 'Shipping Address', 'Shipping GST'],
-            null,
-            'A1'
-        );
+        // Updated header to match required order
+        $headers = [
+            'File',
+            'Order Number',
+            'Order Date',
+            'Invoice Number',
+            'Invoice Details',
+            'Billing Name',
+            'Shipping Address',
+            'Shipping GST'
+        ];
+
+        $sheet->fromArray($headers, null, 'A1');
+
+        // Style header
+        $sheet->getStyle('A1:H1')->getFont()->setBold(true);
+        $sheet->getStyle('A1:H1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+        foreach (range('A', 'H') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
 
         $row = 2;
 
@@ -38,11 +53,13 @@ class PdfUploadController extends Controller
             $text = $pdf->getText();
             $lines = explode("\n", $text);
 
-            // Initialize fields
             $orderNumber = $invoiceNumber = $orderDate = $invoiceDetails = '';
             $shippingAddress = '';
             $shippingGst = '';
+            $billingName = '';
+            $billingGst = '';
 
+            // Extract Order Number & Invoice Number
             foreach ($lines as $line) {
                 if (stripos($line, 'Order Number:') !== false && stripos($line, 'Invoice Number') !== false) {
                     preg_match('/Order Number:\s*([^\s]+)/', $line, $orderMatch);
@@ -59,29 +76,42 @@ class PdfUploadController extends Controller
                 }
             }
 
-            // Extract Shipping Address block
-            preg_match('/Shipping Address\s*:\s*(.*?)\n(?:\s*\n|\r\n|\n)/s', $text, $shippingBlock);
+            // --- Shipping Address block ---
+            preg_match('/Shipping Address\s*:([\s\S]*?)(?:Place of supply|Place of Supply)/i', $text, $shippingBlock);
             $shippingBlockText = trim($shippingBlock[1] ?? '');
-            $shippingLines = explode("\n", $shippingBlockText);
-            $shippingAddress = implode(', ', array_map('trim', $shippingLines));
+            //$shippingAddress = preg_replace('/\s+/', ' ', $shippingBlockText);
 
-            // Extract the GST number from the "Sold By" section
-            preg_match('/Sold By\s*:.*?GST Registration No:\s*(\w+)/s', $text, $gstMatch);
+            // Extract Shipping GST anywhere in that block
+            preg_match('/GST Registration No\s*:\s*([A-Z0-9]+)/i', $shippingBlockText, $gstMatch);
             $shippingGst = trim($gstMatch[1] ?? '');
 
+            // Find "highlight-like" words (all-caps blocks often used by Amazon for emphasis)
+            $highlightWords = [];
+            if (preg_match_all('/\b[A-Z]{2,}(?:\s+[A-Z]{2,})*\b/', $shippingBlockText, $matches)) {
+                $highlightWords = array_unique($matches[0]);
+            }
 
-            $shippingLines = array_filter(explode("\n", $shippingBlockText), function ($line) {
-                return stripos($line, 'GST Registration No:') === false;
-            });
+            // Append highlights if found
+            if (!empty($highlightWords)) {
+                $shippingAddress =  implode(", ", $highlightWords);
+            }
 
-            $shippingAddress = implode(", ", array_map('trim', $shippingLines));
+            // Billing Name (first line after "Billing Address :")
+            preg_match('/Billing Address\s*:\s*(.+)\n/i', $text, $billingNameMatch);
+            $billingName = trim($billingNameMatch[1] ?? '');
 
+            // Billing GST (search after "Billing Address")
+            preg_match('/Billing Address.*?GST Registration No:\s*([A-Z0-9]+)/s', $text, $billingGstMatch);
+            $billingGst = trim($billingGstMatch[1] ?? '');
+
+            // Write row in correct column order
             $sheet->fromArray([
                 $uploadedFile->getClientOriginalName(),
                 $orderNumber,
                 $orderDate,
                 $invoiceNumber,
                 $invoiceDetails,
+                $billingName,
                 $shippingAddress,
                 $shippingGst
             ], null, 'A' . $row);
