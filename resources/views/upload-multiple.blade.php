@@ -76,15 +76,20 @@
     <div class="container">
         <h2>Upload Invoices (Multiple PDFs)</h2>
 
-        @if ($errors->any())
-            <div class="errors">
-                <ul>
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
-            </div>
+@if ($errors->any())
+    <div style="margin-top:18px;padding:12px;border-radius:6px;background:#fff5f5;border:1px solid #ffd1d1;color:#7a1a1a">
+        <h4 style="margin:0 0 8px 0">Parsing issues</h4>
+        <ul style="margin:0;padding-left:18px">
+        @foreach ($errors->all() as $err)
+            <li>{{ $err }}</li>
+        @endforeach
+        </ul>
+        @if(session('excel_path'))
+            <p style="margin-top:10px">Partial results saved — <a href="{{ Storage::url(session('excel_path')) }}" target="_blank">Download Excel</a></p>
         @endif
+    </div>
+@endif
+
 
         <form action="{{ route('upload.handle') }}" method="POST" enctype="multipart/form-data">
             @csrf
